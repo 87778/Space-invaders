@@ -13,14 +13,15 @@ const invaderReload = 60;
 const playerReload = 0.5;
 
 let invaders = [];
-let player = {};
+let players = [];
 let projectiles = [];
 
 function pageLoad() {
 
     fixSize();
     loadImages();
-    preparePlayer();
+    players.push(new Player());
+    players.push(new Player());
     prepareInvaders();
 
     window.addEventListener("resize", fixSize);
@@ -73,31 +74,35 @@ function loadCheck() {
 
 }
 
-function preparePlayer() {
+class Player {
 
-  player.x = w / 2;
-  player.y = h - 100;
-  player.dx = 0;
-  player.alive = true;
-  player.reload = 0;
-
-  player.draw = function(context) {
-      context.drawImage(playerImage,
-          0, 0, playerImage.width, playerImage.height,
-          player.x - 32, player.y - 32, 64, 64);
+  constructor() {
+    this.x = w / 2;
+    this.y = h - 100;
+    this.dx = 0;
+    this.alive = true;
+    this.reload = 0;
   }
 
-  player.update = function(frameLength) {
+  draw(context) {
+      context.drawImage(playerImage,
+          0, 0, playerImage.width, playerImage.height,
+          this.x - 32, this.y - 32, 64, 64);
+  }
 
-    player.x += player.dx * frameLength;
+  update(frameLength) {
 
-    if (player.x < 50) {
-        player.x = 50;
-        player.dx = 0;
-    } else if (player.x > w - 50) {
-        player.x = w-50;
-        player.dx = 0;
+    this.x += this.dx * frameLength;
+
+    if (this.x < 50) {
+        this.x = 50;
+        this.dx = 0;
+    } else if (this.x > w - 50) {
+        this.x = w-50;
+        this.dx = 0;
     }
+
+    this.reload -= frameLength;
 
   }
 
@@ -127,6 +132,14 @@ class Invader {
 
   update(frameLength) {
     this.x += this.dx * frameLength;
+    this.edge = this.x > w - 32 || this.x < 32;
+
+    this.reload -= frameLength;
+    if (this.reload < 0) {
+      projectiles.push(new Projectile(this.x, this.y+25, 250, false));
+      this.reload = invaderReload;
+    }
+
   }
 
 }
@@ -146,7 +159,31 @@ function prepareInvaders() {
 
 class Projectile {
 
-    //TO-DO
+  constructor(x, y, dy, friendly) {
+      this.x = x;
+      this.y = y;
+      this.dy = dy;
+      this.friendly = friendly;
+      this.expired = false;
+  }
+
+  draw(context) {
+    if (this.friendly) {
+      context.fillStyle = 'limegreen';
+    } else {
+      context.fillStyle = 'orange';
+    }
+
+    context.beginPath();
+    context.arc(this.x, this.y, 10, 0, 2*Math.PI);
+    context.fill();
+
+  }
+
+  update(frameLength) {
+    this.y += frameLength * this.dy;
+    this.expired = this.y < -5 || this.y > h+5;
+  }
 
 }
 
@@ -166,15 +203,39 @@ function gameFrame(timestamp) {
 
 function inputs() {
 
+    if (players[0].alive) {
+
     if (pressedKeys["ArrowLeft"]) {
-      player.dx = -400;
+      players[0].dx = -400;
     } else if (pressedKeys["ArrowRight"]) {
-      player.dx = 400;
+      players[0].dx = 400;
     } else {
-      player.dx *= 0.8;
+      players[0].dx *= 0.8;
     }
 
-    //TO-DO: Write fire button
+    if (pressedKeys["ArrowUp"] && players[0].reload <= 0) {
+      players[0].reload = playerReload;
+      projectiles.push(new Projectile(players[0].x, players[0].y-25, -500, true));
+    }
+
+  }
+
+  if (players[1].alive) {
+
+  if (pressedKeys["a"]) {
+    players[1].dx = -400;
+  } else if (pressedKeys["d"]) {
+    players[1].dx = 400;
+  } else {
+    players[1].dx *= 0.8;
+  }
+
+  if (pressedKeys["w"] && players[1].reload <= 0) {
+    players[1].reload = playerReload;
+    projectiles.push(new Projectile(players[1].x, players[1].y-25, -500, true));
+  }
+
+}
 
 }
 
@@ -186,11 +247,50 @@ function seperation(entity1, entity2) {
 
 function processes(frameLength) {
 
-    player.update(frameLength);
+    for (let player of players) {
+      player.update(frameLength);
+    }
 
+    let oneOfThemHasHitTheEdge = false;
     for (let invader of invaders) {
       invader.update(frameLength);
+      oneOfThemHasHitTheEdge = oneOfThemHasHitTheEdge || invader.edge;
+      for (let player of players) {
+        if (player.alive && seperation(invader, player) < 64) {
+          invader.alive = false;
+          player.alive = false;
+        }
+      }
     }
+
+    if (oneOfThemHasHitTheEdge) {
+      for (let invader of invaders) {
+        invader.y += 32;
+        invader.dx = -invader.dx;
+      }
+    }
+
+    for (let projectile of projectiles) {
+      projectile.update(frameLength);
+      if (projectile.friendly) {
+        for (let invader of invaders) {
+          if (seperation(invader, projectile) < 37) {
+            projectile.expired = true;
+            invader.alive = false;
+          }
+        }
+      } else {
+        for (let player of players) {
+          if (player.alive && seperation(player, projectile) < 37) {
+            projectile.expired = true;
+            player.alive = false;
+          }
+        }
+      }
+    }
+
+    invaders = invaders.filter(i => i.alive);
+    projectiles = projectiles.filter(p => !p.expired);
 
 }
 
@@ -207,6 +307,14 @@ function outputs() {
     invader.draw(context);
   }
 
-  player.draw(context);
+  for (let projectile of projectiles) {
+      projectile.draw(context);
+  }
+
+  for (let player of players) {
+    if (player.alive) {
+      player.draw(context);
+    }
+  }
 
 }
